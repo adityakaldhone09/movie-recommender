@@ -21,20 +21,55 @@ TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_500 = "https://image.tmdb.org/t/p/w500"
 
 if not TMDB_API_KEY:
-    # Don't crash import-time in production if you prefer; but for you better fail early:
-    raise RuntimeError("TMDB_API_KEY missing. Put it in .env as TMDB_API_KEY=xxxx")
+    raise RuntimeError(
+        "TMDB_API_KEY environment variable is missing. "
+        "Set TMDB_API_KEY in Render environment variables or your local .env file."
+    )
 
 
 # =========================
 # FASTAPI APP
 # =========================
-app = FastAPI(title="Movie Recommender API", version="3.0")
+app = FastAPI(
+    title="Movie Recommender API",
+    version="3.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# =========================
+# PRODUCTION CORS
+# =========================
+# Support custom Vercel production domains via ALLOWED_ORIGINS
+# (e.g. ALLOWED_ORIGINS="https://my-movies.vercel.app,https://mycustomdomain.com")
+raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins: List[str] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8501",
+]
+
+if raw_allowed_origins:
+    for o in raw_allowed_origins.split(","):
+        cleaned = o.strip().rstrip("/")
+        if cleaned and cleaned not in allowed_origins:
+            allowed_origins.append(cleaned)
+
+# Also permit any Vercel preview or production deployment (*.vercel.app)
+allowed_origin_regex = os.getenv(
+    "ALLOWED_ORIGIN_REGEX", r"^https://.*\.vercel\.app$"
+)
+if allowed_origin_regex == "":
+    allowed_origin_regex = None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for local streamlit
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -64,8 +99,11 @@ class TMDBMovieCard(BaseModel):
     tmdb_id: int
     title: str
     poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
     release_date: Optional[str] = None
     vote_average: Optional[float] = None
+    overview: Optional[str] = None
+    genre_ids: List[int] = []
 
 
 class TMDBMovieDetails(BaseModel):
@@ -76,6 +114,13 @@ class TMDBMovieDetails(BaseModel):
     poster_url: Optional[str] = None
     backdrop_url: Optional[str] = None
     genres: List[dict] = []
+    runtime: Optional[int] = None
+    vote_average: Optional[float] = None
+    vote_count: Optional[int] = None
+    tagline: Optional[str] = None
+    trailer_url: Optional[str] = None
+    director: Optional[str] = None
+    cast: List[dict] = []
 
 
 class TFIDFRecItem(BaseModel):
@@ -140,15 +185,54 @@ async def tmdb_cards_from_results(
                 tmdb_id=int(m["id"]),
                 title=m.get("title") or m.get("name") or "",
                 poster_url=make_img_url(m.get("poster_path")),
+                backdrop_url=make_img_url(m.get("backdrop_path")),
                 release_date=m.get("release_date"),
                 vote_average=m.get("vote_average"),
+                overview=m.get("overview"),
+                genre_ids=m.get("genre_ids", []) or [],
             )
         )
     return out
 
 
 async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
-    data = await tmdb_get(f"/movie/{movie_id}", {"language": "en-US"})
+    data = await tmdb_get(
+        f"/movie/{movie_id}",
+        {"append_to_response": "credits,videos", "language": "en-US"},
+    )
+
+    # Extract YouTube trailer
+    trailer_url = None
+    videos = data.get("videos", {}).get("results", []) or []
+    for v in videos:
+        if v.get("site") == "YouTube" and v.get("key"):
+            if v.get("type") == "Trailer":
+                trailer_url = f"https://www.youtube.com/watch?v={v['key']}"
+                break
+            elif v.get("type") == "Teaser" and not trailer_url:
+                trailer_url = f"https://www.youtube.com/watch?v={v['key']}"
+
+    # Extract Director
+    director = None
+    crew = data.get("credits", {}).get("crew", []) or []
+    for c in crew:
+        if c.get("job") == "Director":
+            director = c.get("name")
+            break
+
+    # Extract top cast
+    cast_list = []
+    cast_raw = data.get("credits", {}).get("cast", []) or []
+    for c in cast_raw[:12]:
+        cast_list.append(
+            {
+                "id": c.get("id"),
+                "name": c.get("name") or "",
+                "character": c.get("character") or "",
+                "profile_url": make_img_url(c.get("profile_path")),
+            }
+        )
+
     return TMDBMovieDetails(
         tmdb_id=int(data["id"]),
         title=data.get("title") or "",
@@ -157,6 +241,13 @@ async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
         poster_url=make_img_url(data.get("poster_path")),
         backdrop_url=make_img_url(data.get("backdrop_path")),
         genres=data.get("genres", []) or [],
+        runtime=data.get("runtime"),
+        vote_average=data.get("vote_average"),
+        vote_count=data.get("vote_count"),
+        tagline=data.get("tagline"),
+        trailer_url=trailer_url,
+        director=director,
+        cast=cast_list,
     )
 
 
@@ -313,7 +404,16 @@ def load_pickles():
 # =========================
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """
+    Lightweight health and readiness endpoint for Render and orchestrators.
+    Reports process liveness and model readiness without leaking secrets or paths.
+    """
+    models_ready = df is not None and tfidf_matrix is not None
+    return {
+        "status": "healthy" if models_ready else "initializing",
+        "models_loaded": models_ready,
+        "dataset_size": len(df) if df is not None else 0,
+    }
 
 
 # ---------- HOME FEED (TMDB) ----------
@@ -474,3 +574,158 @@ async def search_bundle(
         tfidf_recommendations=tfidf_items,
         genre_recommendations=genre_recs,
     )
+
+
+# ---------- GENRE LIST ----------
+@app.get("/genres")
+async def get_genres():
+    try:
+        data = await tmdb_get("/genre/movie/list", {"language": "en-US"})
+        return data.get("genres", [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch genres: {e}")
+
+
+# ---------- DISCOVER WITH FILTERS & MOOD ----------
+MOOD_GENRE_MAP: Dict[str, List[int]] = {
+    "mind-bending": [878, 9648],      # Sci-Fi, Mystery
+    "feel-good": [35, 10751],         # Comedy, Family
+    "dark-intense": [80, 53, 27],     # Crime, Thriller, Horror
+    "romantic": [10749, 18],          # Romance, Drama
+    "thrilling": [28, 53],            # Action, Thriller
+    "inspirational": [18, 36],        # Drama, History
+    "family-night": [10751, 16, 12],  # Family, Animation, Adventure
+    "sci-fi-adventure": [878, 12],    # Sci-Fi, Adventure
+}
+
+
+@app.get("/discover", response_model=List[TMDBMovieCard])
+async def discover_movies(
+    genres: Optional[str] = Query(None, description="Comma-separated genre IDs"),
+    min_rating: Optional[float] = Query(None, ge=0.0, le=10.0),
+    min_year: Optional[int] = Query(None),
+    max_year: Optional[int] = Query(None),
+    sort_by: str = Query("popularity.desc"),
+    mood: Optional[str] = Query(None),
+    limit: int = Query(24, ge=1, le=50),
+    page: int = Query(1, ge=1, le=20),
+):
+    """
+    Faceted discovery route supporting:
+    - Multi-genre filtering
+    - Rating threshold
+    - Release year range
+    - Mood mapping to genres
+    - Sorting options
+    """
+    page_val = page if isinstance(page, int) else 1
+    sort_by_val = sort_by if isinstance(sort_by, str) else "popularity.desc"
+    limit_val = limit if isinstance(limit, int) else 24
+
+    params: Dict[str, Any] = {
+        "language": "en-US",
+        "sort_by": sort_by_val,
+        "page": page_val,
+        "include_adult": "false",
+    }
+
+    selected_genre_ids: List[int] = []
+    if isinstance(genres, str) and genres:
+        for gid in genres.split(","):
+            gid = gid.strip()
+            if gid.isdigit():
+                selected_genre_ids.append(int(gid))
+
+    # Mood-based transparent mapping
+    if isinstance(mood, str) and mood.lower() in MOOD_GENRE_MAP:
+        mood_ids = MOOD_GENRE_MAP[mood.lower()]
+        for mid in mood_ids:
+            if mid not in selected_genre_ids:
+                selected_genre_ids.append(mid)
+
+    if selected_genre_ids:
+        params["with_genres"] = ",".join(str(g) for g in selected_genre_ids)
+
+    if isinstance(min_rating, (int, float)) and min_rating > 0:
+        params["vote_average.gte"] = min_rating
+        params["vote_count.gte"] = 50  # avoid movies with only 1 vote
+
+    if isinstance(min_year, int):
+        params["primary_release_date.gte"] = f"{min_year}-01-01"
+    if isinstance(max_year, int):
+        params["primary_release_date.lte"] = f"{max_year}-12-31"
+
+    try:
+        data = await tmdb_get("/discover/movie", params)
+        return await tmdb_cards_from_results(data.get("results", []), limit=limit_val)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Discover route failed: {e}")
+
+
+# =========================
+# STATIC FRONTEND SERVING (SPA)
+# =========================
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+@app.on_event("startup")
+def mount_frontend_assets():
+    dist_assets = os.path.join(BASE_DIR, "dist", "assets")
+    if os.path.exists(dist_assets):
+        app.mount("/assets", StaticFiles(directory=dist_assets), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    # Avoid intercepting API routes
+    if full_path.startswith(
+        (
+            "health",
+            "home",
+            "tmdb",
+            "movie",
+            "recommend",
+            "genres",
+            "discover",
+            "docs",
+            "openapi.json",
+        )
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    dist_dir = os.path.join(BASE_DIR, "dist")
+    if not os.path.exists(dist_dir):
+        return {
+            "status": "healthy",
+            "service": "Movie Recommender API",
+            "version": "3.0",
+            "docs": "/docs",
+            "health": "/health",
+        }
+
+    file_path = os.path.join(dist_dir, full_path)
+    if full_path and os.path.isfile(file_path):
+        return FileResponse(file_path)
+
+    index_file = os.path.join(dist_dir, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+
+    return {
+        "status": "healthy",
+        "service": "Movie Recommender API",
+        "version": "3.0",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
+# =========================
+# PRODUCTION ENTRYPOINT
+# =========================
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", 8000))
+    # Bind to 0.0.0.0 for containerized and Render hosting
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
