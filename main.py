@@ -375,6 +375,20 @@ async def attach_tmdb_card_by_title(title: str) -> Optional[TMDBMovieCard]:
 def load_pickles():
     global df, indices_obj, tfidf_matrix, tfidf_obj, TITLE_TO_IDX
 
+    required_artifacts = [
+        ("df.pkl", DF_PATH),
+        ("indices.pkl", INDICES_PATH),
+        ("tfidf_matrix.pkl", TFIDF_MATRIX_PATH),
+        ("tfidf.pkl", TFIDF_PATH),
+    ]
+
+    for name, path in required_artifacts:
+        if not os.path.isfile(path):
+            raise RuntimeError(
+                f"Required recommendation model artifact '{name}' missing at '{path}'. "
+                "Ensure all 4 pickle files are committed to the repository root."
+            )
+
     # Load df
     with open(DF_PATH, "rb") as f:
         df = pickle.load(f)
