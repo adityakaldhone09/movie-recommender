@@ -1,49 +1,73 @@
-# Movie Recommender
+# CINEVA — Cinematic Movie Discovery & AI Recommendation System
 
-The project has a FastAPI backend (`main.py`) and a Streamlit frontend (`app.py`).
-The backend uses TMDB for movie data and the local pickle files for
-TF-IDF recommendations.
+A modern movie discovery platform combining the immersive aesthetics of **Netflix** and **Letterboxd** with machine learning content embeddings (**TF-IDF Cosine Similarity** over 45,000+ films) and TMDB intelligence.
 
-## Requirements
+## Features
 
-- Python 3.11.9 (the version declared in `runtime.txt`)
-- A TMDB API key
+- **Cinematic Homepage**: Full-width featured premieres hero carousel with slow zoom, synopsis, rating badges, and instant trailer / details triggers.
+- **AI Recommendation Engine**:
+  - **TF-IDF Content Similarity**: Cosine similarity against 45,000+ local movie metadata vectors with authentic match score percentages.
+  - **Mood-Based Vibe Discovery**: Mind-Bending, Feel-Good, Dark & Intense, Romantic, Thrilling, Inspirational, Family Night, and Sci-Fi Adventure.
+  - **Multi-Genre Filter & Sliders**: Multi-select genre tags, minimum rating range slider (0.0 – 9.0+), and release era range slider (1970 – 2026).
+- **Interactive Movie Cards & Shelves**: Responsive poster cards with smooth hover lift, quick bookmark actions, match badges, and Chevrons for gliding shelf navigation.
+- **Full Movie Details Modal**: Backdrop showcase, director, cast cards with avatars, runtime, synopsis, official YouTube trailer player, and dual recommendations tabs.
+- **Persistent Watchlist**: Device-persisted movie queue with quick removal and feedback toasts.
+- **Responsive & Accessible**: Keyboard navigable, respects reduced motion, and fully responsive across mobile, tablet, and desktop screens.
 
-## Local setup
+---
 
-Create and activate a virtual environment from the project directory:
+## Architecture
+
+- **Backend**: FastAPI (`main.py`)
+  - Pickled TF-IDF matrix & dataframe (`df.pkl`, `indices.pkl`, `tfidf_matrix.pkl`, `tfidf.pkl`)
+  - TMDB REST integration for fresh movie metadata, cast, director, backdrops, and official trailers
+  - Integrated static SPA serving from `dist/`
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Framer Motion + Lucide Icons
+- **Legacy Compatibility**: Streamlit interface (`app.py`) preserved and fully functional.
+
+---
+
+## Quickstart
+
+### 1. Backend Setup
 
 ```bash
-python3.11 -m venv .venv
+# Activate virtual environment
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+
+# Install dependencies (if not already installed)
+pip install -r requirements.txt
+
+# Ensure TMDB_API_KEY is present in your .env
+# TMDB_API_KEY=your_key_here
 ```
 
-Copy `.env.example` to `.env` and set `TMDB_API_KEY` to your TMDB API key. Keep
-`.env` private; it is excluded from Git. `API_BASE_URL` is optional and defaults
-to the local FastAPI service at `http://127.0.0.1:8000`.
+### 2. Frontend Build / Development
 
-## Run
+```bash
+# Install frontend packages
+npm install
 
-Open two terminals in the project directory and activate `.venv` in each.
+# Build the production bundle
+npm run build
 
-Start the backend in the first terminal:
+# Or run Vite live development server
+npm run dev
+```
+
+### 3. Running the Unified Full-Stack Platform
+
+Start the FastAPI server:
 
 ```bash
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The API health endpoint is available at `http://127.0.0.1:8000/health`, and
-interactive API documentation is at `http://127.0.0.1:8000/docs`.
+- **Cinematic Web Platform**: Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- **Interactive API Documentation**: Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **API Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-Start the frontend in the second terminal:
-
+*(Optional) Legacy Streamlit App:*
 ```bash
 streamlit run app.py
 ```
-
-Open the local URL printed by Streamlit (normally `http://localhost:8501`).
-
-The backend loads `df.pkl`, `indices.pkl`, `tfidf_matrix.pkl`, and `tfidf.pkl`
-from the project directory at startup. All four files must be present.
