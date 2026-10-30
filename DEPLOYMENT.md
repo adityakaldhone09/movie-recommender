@@ -13,7 +13,7 @@ This guide outlines the exact, end-to-end steps to deploy the **Cinematic Movie 
 +------------------------------------+        HTTPS REST        +----------------------------------------+
 |          Vercel Frontend           |  ======================>  |          Render Web Service            |
 |     (React 18 + Vite + SPA)        |  (CORS allowed headers)   |  (FastAPI + Python 3.11 + Uvicorn)     |
-|   https://<your-app>.vercel.app    |                           |  https://<your-backend>.onrender.com   |
+| https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app | | https://movie-recommender-3zs7.onrender.com |
 +------------------------------------+                           +----------------------------------------+
                   |                                                                   |
      Reads `VITE_API_BASE_URL`                                     Reads `TMDB_API_KEY` & `ALLOWED_ORIGINS`
@@ -62,7 +62,8 @@ The repository includes [`render.yaml`](./render.yaml).
 3. Select your GitHub repository `movie-recommender`.
 4. Render will read `render.yaml` and prompt for the required environment variable:
    - `TMDB_API_KEY`: Enter your TMDB v3 API Key.
-5. Click **Apply**. Render will automatically provision and deploy the Web Service.
+5. The blueprint configures `ALLOWED_ORIGINS` for the production Vercel origin and local development. Do not add a wildcard Vercel regex.
+6. Click **Apply**. Render will automatically provision and deploy the Web Service.
 
 ---
 
@@ -97,8 +98,7 @@ If you prefer configuring the service manually in the Render dashboard:
    | :--- | :--- | :--- |
    | `PYTHON_VERSION` | `3.11.9` | Matches declared runtime |
    | `TMDB_API_KEY` | `your_tmdb_api_key` | Secret TMDB key |
-   | `ALLOWED_ORIGIN_REGEX` | `^https://.*\.vercel\.app$` | Permits all Vercel deployments |
-   | `ALLOWED_ORIGINS` | `https://your-custom-domain.com` | (Optional) Custom production domain |
+   | `ALLOWED_ORIGINS` | `https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app,http://localhost:5173,http://127.0.0.1:5173` | Exact allowed browser origins; add a custom frontend domain here if needed |
 
 6. Click **Create Web Service**.
 
@@ -106,13 +106,13 @@ If you prefer configuring the service manually in the Render dashboard:
 Once the deployment finishes:
 - Test the health endpoint in your browser or terminal:
   ```bash
-  curl https://<your-backend-name>.onrender.com/health
+  curl https://movie-recommender-3zs7.onrender.com/health
   ```
   Expected output:
   ```json
   {"status":"healthy","models_loaded":true,"dataset_size":45460}
   ```
-- Copy your live backend URL (e.g. `https://movie-recommender-api.onrender.com`).
+- Backend API base URL: `https://movie-recommender-3zs7.onrender.com`.
 
 ---
 
@@ -137,27 +137,27 @@ The repository root also contains the Python backend and its `requirements.txt` 
 5. Expand **Environment Variables**:
    | Variable Name | Value | Description |
    | :--- | :--- | :--- |
-   | `VITE_API_BASE_URL` | `https://<your-backend-name>.onrender.com` | Your live Render backend HTTPS URL (no trailing slash) |
+   | `VITE_API_BASE_URL` | `https://movie-recommender-3zs7.onrender.com` | Render API base URL; no trailing slash; public configuration, not a secret |
 6. Click **Deploy**.
 
-Vercel will build the project using Vite and deploy it to a URL like `https://<your-project>.vercel.app`.
+Vercel will build the project using Vite and deploy it at `https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app`.
 
 ---
 
 ## Part D: Connect and Synchronize Services
 
 ### 1. Configure Backend CORS
-The backend in `main.py` is configured to automatically allow:
-- Any origin ending in `.vercel.app` (both production and preview branch deployments).
-- Localhost development ports (`http://localhost:5173`, `http://localhost:3000`, `http://127.0.0.1:8000`).
+The backend uses an explicit origin allowlist. It allows the production Vercel origin above and the local development origins `http://localhost:5173` and `http://127.0.0.1:5173`. Credentials are disabled; the frontend uses GET requests and the CORS middleware accepts the `Accept` header. Vercel preview deployments are not allowed by default.
 
 If you assign a **custom domain** to your Vercel project (e.g. `https://cinemamovies.com`):
 1. Go to your Render Web Service dashboard -> **Environment**.
-2. Add or update `ALLOWED_ORIGINS`:
+2. Add the exact origin to `ALLOWED_ORIGINS`, comma-separated with the existing origins:
    ```
-   ALLOWED_ORIGINS=https://cinemamovies.com
+   ALLOWED_ORIGINS=https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app,http://localhost:5173,http://127.0.0.1:5173,https://cinemamovies.com
    ```
 3. Save changes (Render will automatically redeploy).
+
+Do not configure `ALLOWED_ORIGIN_REGEX` or a wildcard such as `https://*.vercel.app`. Remove any previously configured `ALLOWED_ORIGIN_REGEX` from the Render dashboard. To use a Vercel preview, add that specific deployment origin to `ALLOWED_ORIGINS` and redeploy Render.
 
 ### 2. Updating Backend URL on Vercel
 If your Render backend URL changes:
@@ -167,11 +167,30 @@ If your Render backend URL changes:
 
 ---
 
+## Local Development
+
+The `.env.example` documents the production frontend URL and backend-only settings; it is not loaded automatically. Keep `.env` and `.env.development.local` untracked. For local frontend development with the local API, create `.env.development.local` with:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Then install and run the React frontend:
+
+```bash
+npm ci
+npm run dev
+```
+
+To run the backend locally, create a Python virtual environment, install `requirements.txt`, set `TMDB_API_KEY` in the ignored `.env`, and start `uvicorn main:app --host 0.0.0.0 --port 8000`. The backend's explicit CORS list includes the local Vite origin. Never put `TMDB_API_KEY` in a `VITE_*` variable.
+
+The frontend calls `/home`, `/tmdb/search`, `/movie/id/{tmdb_id}`, `/movie/search`, `/genres`, and `/discover`. TF-IDF and genre recommendations are returned together by `/movie/search`. Watchlist data is intentionally saved in browser `localStorage`; the backend has no watchlist persistence route.
+
 ## Part E: Production Verification Checklist
 
 Run through these checks on your live production URL:
 
-- [ ] **Frontend Loads:** Navigate to `https://<your-project>.vercel.app`. The dark cinematic UI, logo, navigation bar, and hero premiere carousel should display.
+- [ ] **Frontend Loads:** Navigate to `https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app`. The dark cinematic UI, logo, navigation bar, and hero premiere carousel should display.
 - [ ] **Cold Start Notice:** If the backend was inactive, the interface displays a graceful notice while Render wakes up, then smoothly loads movie cards.
 - [ ] **Direct Navigation & Refresh:**
   - Visit `https://<your-project>.vercel.app/discover` directly and press Refresh. Verify that Vercel routes correctly to the SPA without returning a 404.
@@ -203,7 +222,7 @@ Run through these checks on your live production URL:
 | Symptom | Cause | Solution |
 | :--- | :--- | :--- |
 | **"Request timed out / Backend waking up"** | Render Free Tier spins down after 15 min of inactivity. | Wait 30–45s for the initial cold start. Upgrading to a Render Starter plan prevents sleep. |
-| **CORS blocked error in browser console** | Frontend origin is not matching allowed origins. | Verify that `ALLOWED_ORIGIN_REGEX` is set to `^https://.*\.vercel\.app$` or add your custom domain to `ALLOWED_ORIGINS` in Render. |
+| **CORS blocked error in browser console** | Frontend origin is not an exact allowed origin. | Add the exact Vercel/custom domain to `ALLOWED_ORIGINS` in Render; do not use a wildcard regex. |
 | **Frontend displays 404 on refresh** | Client-side routing rewrite missing. | Verify that `vercel.json` exists in the repository with the rewrite rule to `/index.html`. |
-| **Frontend calls `localhost:8000` instead of Render** | `VITE_API_BASE_URL` was not set during Vercel build. | Add `VITE_API_BASE_URL=https://<your-backend>.onrender.com` in Vercel settings and trigger a fresh Redeployment. |
+| **Frontend calls the wrong API host** | `VITE_API_BASE_URL` is unset or stale. | Set `VITE_API_BASE_URL=https://movie-recommender-3zs7.onrender.com` in Vercel settings and trigger a fresh redeployment. |
 | **Backend error: `TMDB_API_KEY missing`** | Key not set in Render environment. | Add `TMDB_API_KEY` in Render Web Service Environment variables. |

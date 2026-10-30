@@ -40,10 +40,11 @@ app = FastAPI(
 # =========================
 # PRODUCTION CORS
 # =========================
-# Support custom Vercel production domains via ALLOWED_ORIGINS
-# (e.g. ALLOWED_ORIGINS="https://my-movies.vercel.app,https://mycustomdomain.com")
+# Explicit production and local development origins. Add any custom frontend
+# origins through ALLOWED_ORIGINS; do not allow every vercel.app deployment.
 raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
 allowed_origins: List[str] = [
+    "https://movie-recommender-th84-ni8srki03-adityakaldhone0486-2052.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
@@ -54,23 +55,19 @@ allowed_origins: List[str] = [
 if raw_allowed_origins:
     for o in raw_allowed_origins.split(","):
         cleaned = o.strip().rstrip("/")
+        if cleaned == "*":
+            raise RuntimeError(
+                "ALLOWED_ORIGINS must contain exact origins; wildcard '*' is not allowed."
+            )
         if cleaned and cleaned not in allowed_origins:
             allowed_origins.append(cleaned)
-
-# Also permit any Vercel preview or production deployment (*.vercel.app)
-allowed_origin_regex = os.getenv(
-    "ALLOWED_ORIGIN_REGEX", r"^https://.*\.vercel\.app$"
-)
-if allowed_origin_regex == "":
-    allowed_origin_regex = None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=allowed_origin_regex,
-    allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Accept"],
+    allow_credentials=False,
 )
 
 
