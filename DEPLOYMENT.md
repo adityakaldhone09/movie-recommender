@@ -120,6 +120,8 @@ Once the deployment finishes:
 
 Vercel will host the React single-page application.
 
+The repository root also contains the Python backend and its `requirements.txt` for Render. Vercel must install and build the frontend with npm; the Python files and model/data files remain in the repository for Render and are not Vercel serverless functions. `vercel.json` explicitly selects Vite, runs `npm ci` and `npm run build`, and publishes `dist`.
+
 1. Log into your [Vercel Dashboard](https://vercel.com/dashboard).
 2. Click **Add New...** -> **Project**.
 3. Import your GitHub repository `movie-recommender`.
@@ -128,7 +130,10 @@ Vercel will host the React single-page application.
    - **Root Directory:** `./` (root)
    - **Build Command:** `npm run build`
    - **Output Directory:** `dist`
-   - **Install Command:** `npm install`
+   - **Install Command:** `npm ci`
+   - **Development Command:** leave unset (Vercel uses the Vite preset)
+
+   These settings should match the repository's `vercel.json`; do not set a Python or `pip install` build/install command, and do not add a Python function mapping. Keep the root directory at `./` so Vercel can access `package-lock.json` and the frontend source.
 5. Expand **Environment Variables**:
    | Variable Name | Value | Description |
    | :--- | :--- | :--- |
@@ -202,4 +207,3 @@ Run through these checks on your live production URL:
 | **Frontend displays 404 on refresh** | Client-side routing rewrite missing. | Verify that `vercel.json` exists in the repository with the rewrite rule to `/index.html`. |
 | **Frontend calls `localhost:8000` instead of Render** | `VITE_API_BASE_URL` was not set during Vercel build. | Add `VITE_API_BASE_URL=https://<your-backend>.onrender.com` in Vercel settings and trigger a fresh Redeployment. |
 | **Backend error: `TMDB_API_KEY missing`** | Key not set in Render environment. | Add `TMDB_API_KEY` in Render Web Service Environment variables. |
-
