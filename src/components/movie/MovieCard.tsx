@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Star, Bookmark, Info, Film } from 'lucide-react';
 import { MovieCardData } from '../../types/movie';
@@ -15,6 +15,11 @@ interface MovieCardProps {
 export function MovieCard({ movie, onSelect, priority = false }: MovieCardProps) {
   const { isInWatchlist, toggleWatchlist } = useWatchlist();
   const bookmarked = isInWatchlist(movie.tmdb_id);
+  const [posterFailed, setPosterFailed] = useState(false);
+
+  useEffect(() => {
+    setPosterFailed(false);
+  }, [movie.poster_url]);
 
   const handleBookmarkClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -37,16 +42,13 @@ export function MovieCard({ movie, onSelect, priority = false }: MovieCardProps)
     >
       {/* Poster Container */}
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface">
-        {movie.poster_url ? (
+        {movie.poster_url && !posterFailed ? (
           <img
             src={movie.poster_url}
             alt={movie.title}
             loading={priority ? 'eager' : 'lazy'}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            onError={(e) => {
-              // fallback if image link fails
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            onError={() => setPosterFailed(true)}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-surface-elevated text-cinema-muted">
@@ -139,4 +141,3 @@ export function MovieCard({ movie, onSelect, priority = false }: MovieCardProps)
     </motion.div>
   );
 }
-

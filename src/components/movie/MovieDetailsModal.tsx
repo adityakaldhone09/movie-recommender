@@ -11,9 +11,14 @@ import {
   Share2,
   X,
   Layers,
+  RotateCcw,
 } from 'lucide-react';
 import { MovieCardData, MovieDetailsData, TFIDFRecItem } from '../../types/movie';
-import { fetchMovieDetails, fetchSearchBundle } from '../../services/api';
+import {
+  fetchMovieDetails,
+  fetchSearchBundle,
+  getApiErrorMessage,
+} from '../../services/api';
 import { useWatchlist } from '../../context/WatchlistContext';
 import { useToast } from '../../context/ToastContext';
 import { formatRating, formatRuntime, formatYear } from '../../utils/formatters';
@@ -43,42 +48,71 @@ export function MovieDetailsModal({
   const [tfidfRecs, setTfidfRecs] = useState<TFIDFRecItem[]>([]);
   const [genreRecs, setGenreRecs] = useState<MovieCardData[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const { isInWatchlist, toggleWatchlist } = useWatchlist();
   const { showToast } = useToast();
 
   useEffect(() => {
+    let active = true;
     if (isOpen && movie) {
       setShowTrailer(false);
       setLoading(true);
       setLoadingRecs(true);
+      setDetails(null);
+      setDetailsError(null);
+      setRecommendationsError(null);
+      setTfidfRecs([]);
+      setGenreRecs([]);
 
-      // Fetch primary details
-      fetchMovieDetails(movie.tmdb_id)
-        .then((data) => {
+      const loadMovieData = async () => {
+        let movieTitle = movie.title;
+        try {
+          const data = await fetchMovieDetails(movie.tmdb_id);
+          if (!active) return;
           setDetails(data);
-          // Then fetch recommendations via search bundle
-          return fetchSearchBundle(data.title || movie.title, 12, 12);
-        })
-        .then((bundle) => {
-          if (bundle) {
-            setTfidfRecs(bundle.tfidf_recommendations || []);
-            setGenreRecs(bundle.genre_recommendations || []);
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to load movie details or recs:', err);
-        })
-        .finally(() => {
+          movieTitle = data.title || movie.title;
+        } catch (error: unknown) {
+          if (!active) return;
+          console.error('Failed to load movie details:', error);
+          setDetailsError(getApiErrorMessage(error, 'Could not load movie details.'));
           setLoading(false);
           setLoadingRecs(false);
-        });
+          return;
+        }
+
+        setLoading(false);
+        try {
+          const bundle = await fetchSearchBundle(movieTitle, 12, 12);
+          if (!active) return;
+          setTfidfRecs(bundle.tfidf_recommendations);
+          setGenreRecs(bundle.genre_recommendations);
+        } catch (error: unknown) {
+          if (!active) return;
+          console.error('Failed to load movie recommendations:', error);
+          setRecommendationsError(
+            getApiErrorMessage(error, 'Could not load recommendations.')
+          );
+        } finally {
+          if (active) setLoadingRecs(false);
+        }
+      };
+      void loadMovieData();
     } else {
       setDetails(null);
       setTfidfRecs([]);
       setGenreRecs([]);
+      setDetailsError(null);
+      setRecommendationsError(null);
+      setLoading(false);
+      setLoadingRecs(false);
     }
-  }, [isOpen, movie]);
+    return () => {
+      active = false;
+    };
+  }, [isOpen, movie, retryCount]);
 
   if (!movie) return null;
 
@@ -190,6 +224,9 @@ export function MovieDetailsModal({
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight drop-shadow-md">
                 {details?.title || movie.title}
               </h1>
+              {loading && (
+                <p className="mt-2 text-xs text-cinema-muted">Loading movie details…</p>
+              )}
 
               {details?.tagline && (
                 <p className="text-xs sm:text-sm italic text-cinema-violet/90 mt-1 font-medium drop-shadow">
@@ -240,6 +277,23 @@ export function MovieDetailsModal({
 
         {/* Modal Body */}
         <div className="p-6 space-y-6">
+          {detailsError && (
+            <div
+              role="alert"
+              className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            >
+              <span>Movie details could not be loaded: {detailsError}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRetryCount((count) => count + 1)}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                Retry
+              </Button>
+            </div>
+          )}
+
           {/* Action Row */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-surface-border">
             <div className="flex flex-wrap items-center gap-3">
@@ -381,7 +435,22 @@ export function MovieDetailsModal({
               </span>
             </div>
 
-            {loadingRecs ? (
+            {recommendationsError ? (
+              <div
+                role="alert"
+                className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <span>Recommendations could not be loaded: {recommendationsError}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRetryCount((count) => count + 1)}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                  Retry
+                </Button>
+              </div>
+            ) : loadingRecs ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="aspect-[2/3] rounded-xl" />
@@ -424,4 +493,3 @@ export function MovieDetailsModal({
     </Modal>
   );
 }
-

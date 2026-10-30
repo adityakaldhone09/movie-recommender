@@ -8,12 +8,14 @@ import { Discover } from './pages/Discover';
 import { Watchlist } from './pages/Watchlist';
 import { MovieDetailsModal } from './components/movie/MovieDetailsModal';
 import { MovieCardData } from './types/movie';
-import { fetchMovieDetails } from './services/api';
+import { fetchMovieDetails, getApiErrorMessage } from './services/api';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [selectedMovie, setSelectedMovie] = useState<MovieCardData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+  const [deepLinkRetryCount, setDeepLinkRetryCount] = useState(0);
 
   // Sync URL query params on initial load (supports ?view=discover / ?view=watchlist / ?id=123)
   useEffect(() => {
@@ -28,6 +30,7 @@ export function App() {
     if (idParam) {
       const tmdbId = parseInt(idParam, 10);
       if (!isNaN(tmdbId)) {
+        setDeepLinkError(null);
         fetchMovieDetails(tmdbId)
           .then((data) => {
             setSelectedMovie({
@@ -41,7 +44,12 @@ export function App() {
             });
             setIsModalOpen(true);
           })
-          .catch(console.error);
+          .catch((error: unknown) => {
+            console.error('Failed to load movie from shared link:', error);
+            setDeepLinkError(
+              getApiErrorMessage(error, 'Could not load this movie. Please retry.')
+            );
+          });
       }
     }
 
@@ -59,10 +67,11 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [deepLinkRetryCount]);
 
   const handleNavigate = (tab: string) => {
     setActiveTab(tab);
+    setDeepLinkError(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // Update query param
@@ -105,6 +114,23 @@ export function App() {
 
           {/* Active View */}
           <main className="flex-1">
+            {deepLinkError && (
+              <div
+                role="alert"
+                className="max-w-7xl mx-auto mt-24 px-4 sm:px-6 lg:px-8"
+              >
+                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span>Could not open this movie: {deepLinkError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDeepLinkRetryCount((count) => count + 1)}
+                    className="rounded-lg border border-rose-300/40 px-3 py-1.5 hover:bg-rose-500/20"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
             {activeTab === 'home' && (
               <Home
                 onSelectMovie={handleSelectMovie}
@@ -139,4 +165,3 @@ export function App() {
 }
 
 export default App;
-

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Loader2, Film } from 'lucide-react';
-import { searchMoviesTmdb } from '../../services/api';
+import { Search, X, Loader2, Film, RotateCcw } from 'lucide-react';
+import { getApiErrorMessage, searchMoviesTmdb } from '../../services/api';
 import { MovieCardData } from '../../types/movie';
 import { formatYear } from '../../utils/formatters';
 import { cn } from '../../utils/cn';
@@ -19,35 +19,51 @@ export function SearchBar({
   autoFocus = false,
 }: SearchBarProps) {
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<MovieCardData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let active = true;
     if (query.trim().length < 2) {
       setSuggestions([]);
       setIsLoading(false);
-      return;
+      setErrorMessage(null);
+      return () => {
+        active = false;
+      };
     }
 
     const timer = setTimeout(async () => {
+      setErrorMessage(null);
       setIsLoading(true);
       try {
         const data = await searchMoviesTmdb(query.trim(), 1);
-        const results = data.results || [];
-        setSuggestions(results.slice(0, 8));
-        setIsOpen(true);
-      } catch (err) {
-        console.error('Search suggestion error:', err);
+        if (active) {
+          setSuggestions(data.results.slice(0, 8));
+          setIsOpen(true);
+        }
+      } catch (error: unknown) {
+        console.error('Search suggestion error:', error);
+        if (active) {
+          setSuggestions([]);
+          setErrorMessage(getApiErrorMessage(error, 'Movie search failed.'));
+          setIsOpen(true);
+        }
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     }, 280);
 
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query, retryCount]);
 
   // Click outside listener
   useEffect(() => {
@@ -60,23 +76,15 @@ export function SearchBar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSelect = (raw: any) => {
-    const movieCard: MovieCardData = {
-      tmdb_id: raw.id,
-      title: raw.title || raw.name || '',
-      poster_url: raw.poster_path ? `https://image.tmdb.org/t/p/w500${raw.poster_path}` : null,
-      backdrop_url: raw.backdrop_path ? `https://image.tmdb.org/t/p/w500${raw.backdrop_path}` : null,
-      release_date: raw.release_date || null,
-      vote_average: raw.vote_average || null,
-      overview: raw.overview || null,
-    };
-    onSelectMovie(movieCard);
+  const handleSelect = (movie: MovieCardData) => {
+    onSelectMovie(movie);
     setIsOpen(false);
   };
 
   const handleClear = () => {
     setQuery('');
     setSuggestions([]);
+    setErrorMessage(null);
     setIsOpen(false);
     inputRef.current?.focus();
   };
@@ -99,7 +107,7 @@ export function SearchBar({
           autoFocus={autoFocus}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
-            if (suggestions.length > 0) setIsOpen(true);
+            if (suggestions.length > 0 || errorMessage) setIsOpen(true);
           }}
           placeholder={placeholder}
           className="w-full pl-12 pr-12 py-3.5 rounded-2xl bg-surface-elevated/90 border border-surface-border text-white placeholder-cinema-muted text-sm sm:text-base outline-none transition-all focus:border-cinema-violet focus:ring-2 focus:ring-cinema-violet/30 shadow-inner"
@@ -117,48 +125,72 @@ export function SearchBar({
       </div>
 
       {/* Autocomplete Dropdown */}
-      {isOpen && suggestions.length > 0 && (
+      {isOpen && (suggestions.length > 0 || errorMessage || (!isLoading && query.trim().length >= 2)) && (
         <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl bg-surface-elevated border border-surface-border shadow-2xl overflow-hidden backdrop-blur-xl">
-          <div className="p-2 divide-y divide-surface-border">
-            {suggestions.map((item) => (
+          {errorMessage ? (
+            <div className="p-4 text-sm text-rose-200">
+              <p>{errorMessage}</p>
               <button
-                key={item.id}
-                onClick={() => handleSelect(item)}
-                className="w-full flex items-center gap-3.5 p-2.5 rounded-xl text-left hover:bg-surface-hover transition-colors group cursor-pointer"
+                type="button"
+                onClick={() => setRetryCount((count) => count + 1)}
+                className="mt-2 inline-flex items-center gap-1.5 text-cinema-violet hover:text-white"
               >
-                <div className="w-10 h-14 rounded-lg bg-surface shrink-0 overflow-hidden border border-white/5">
-                  {item.poster_path ? (
-                    <img
-                      src={`https://image.tmdb.org/t/p/w185${item.poster_path}`}
-                      alt={item.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-cinema-muted">
-                      <Film className="w-4 h-4 opacity-40" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 overflow-hidden">
-                  <div className="text-sm font-semibold text-white group-hover:text-cinema-violet transition-colors truncate">
-                    {item.title || item.name}
-                  </div>
-                  <div className="text-xs text-cinema-muted mt-0.5 flex items-center gap-2">
-                    <span>{formatYear(item.release_date)}</span>
-                    {item.vote_average ? (
-                      <span className="text-cinema-gold font-medium">
-                        ★ {item.vote_average.toFixed(1)}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+                <RotateCcw className="w-3.5 h-3.5" />
+                Retry search
               </button>
-            ))}
-          </div>
+            </div>
+          ) : suggestions.length === 0 ? (
+            <p className="p-4 text-sm text-cinema-muted">No movies found.</p>
+          ) : (
+            <div className="p-2 divide-y divide-surface-border">
+              {suggestions.map((item) => (
+                <button
+                  key={item.tmdb_id}
+                  onClick={() => handleSelect(item)}
+                  className="w-full flex items-center gap-3.5 p-2.5 rounded-xl text-left hover:bg-surface-hover transition-colors group cursor-pointer"
+                >
+                  <div className="w-10 h-14 rounded-lg bg-surface shrink-0 overflow-hidden border border-white/5">
+                    {item.poster_url ? (
+                      <>
+                        <img
+                          src={item.poster_url}
+                          alt={item.title}
+                          className="w-full h-full object-cover"
+                          onError={(event) => {
+                            event.currentTarget.classList.add('hidden');
+                            event.currentTarget.nextElementSibling?.classList.remove('hidden');
+                          }}
+                        />
+                        <div className="hidden w-full h-full flex items-center justify-center text-cinema-muted">
+                          <Film className="w-4 h-4 opacity-40" />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-cinema-muted">
+                        <Film className="w-4 h-4 opacity-40" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 overflow-hidden">
+                    <div className="text-sm font-semibold text-white group-hover:text-cinema-violet transition-colors truncate">
+                      {item.title}
+                    </div>
+                    <div className="text-xs text-cinema-muted mt-0.5 flex items-center gap-2">
+                      <span>{formatYear(item.release_date)}</span>
+                      {item.vote_average ? (
+                        <span className="text-cinema-gold font-medium">
+                          ★ {item.vote_average.toFixed(1)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
-

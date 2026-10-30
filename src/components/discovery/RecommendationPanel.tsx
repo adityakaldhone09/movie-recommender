@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, ArrowRight, Loader2, Film, Layers } from 'lucide-react';
 import { MovieCardData, SearchBundleResponse, TFIDFRecItem } from '../../types/movie';
-import { fetchSearchBundle } from '../../services/api';
+import { fetchSearchBundle, getApiErrorMessage } from '../../services/api';
 import { MovieCard } from '../movie/MovieCard';
 import { Button } from '../ui/Button';
 
@@ -15,18 +15,21 @@ export function RecommendationPanel({ onSelectMovie }: RecommendationPanelProps)
   const [bundle, setBundle] = useState<SearchBundleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleRecommend = async (e?: React.FormEvent) => {
+  const handleRecommend = async (e?: React.FormEvent, requestedQuery = query) => {
     if (e) e.preventDefault();
-    if (!query.trim()) return;
+    const searchQuery = requestedQuery.trim();
+    if (!searchQuery) return;
 
+    setQuery(searchQuery);
     setLoading(true);
     setError(null);
+    setBundle(null);
     try {
-      const res = await fetchSearchBundle(query.trim(), 12, 12);
+      const res = await fetchSearchBundle(searchQuery, 12, 12);
       setBundle(res);
-    } catch (err: any) {
-      console.error('Recommendation failed:', err);
-      setError('Could not find movie recommendations. Please check the spelling or try another title.');
+    } catch (error: unknown) {
+      console.error('Recommendation failed:', error);
+      setError(getApiErrorMessage(error, 'Could not load recommendations. Please retry.'));
     } finally {
       setLoading(false);
     }
@@ -92,10 +95,7 @@ export function RecommendationPanel({ onSelectMovie }: RecommendationPanelProps)
             <button
               key={sample}
               type="button"
-              onClick={() => {
-                setQuery(sample);
-                fetchSearchBundle(sample, 12, 12).then(setBundle).catch(() => {});
-              }}
+              onClick={() => void handleRecommend(undefined, sample)}
               className="px-2.5 py-1 rounded-lg bg-surface border border-surface-border hover:border-cinema-violet hover:text-white transition-colors"
             >
               {sample}
@@ -106,8 +106,16 @@ export function RecommendationPanel({ onSelectMovie }: RecommendationPanelProps)
 
       {/* Error state */}
       {error && (
-        <div className="mt-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">
-          {error}
+        <div className="mt-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <span>{error}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleRecommend()}
+            disabled={!query.trim()}
+          >
+            Retry
+          </Button>
         </div>
       )}
 
@@ -129,12 +137,19 @@ export function RecommendationPanel({ onSelectMovie }: RecommendationPanelProps)
         <div className="mt-10 pt-8 border-t border-surface-border space-y-8">
           {/* Matched Movie Overview Card */}
           <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-surface-border flex flex-col sm:flex-row gap-4 items-center">
-            {bundle.movie_details.poster_url && (
+            {bundle.movie_details.poster_url ? (
               <img
                 src={bundle.movie_details.poster_url}
                 alt={bundle.movie_details.title}
                 className="w-20 aspect-[2/3] object-cover rounded-xl shrink-0"
+                onError={(event) => {
+                  event.currentTarget.style.display = 'none';
+                }}
               />
+            ) : (
+              <div className="w-20 aspect-[2/3] rounded-xl shrink-0 bg-surface-elevated flex items-center justify-center text-xs text-cinema-muted">
+                No poster
+              </div>
             )}
             <div className="flex-1 text-center sm:text-left">
               <span className="text-[11px] font-bold uppercase tracking-wider text-cinema-violet">
@@ -202,9 +217,13 @@ export function RecommendationPanel({ onSelectMovie }: RecommendationPanelProps)
               </div>
             </div>
           )}
+          {tfidfCards.length === 0 && bundle.genre_recommendations.length === 0 && (
+            <p className="text-sm text-cinema-muted text-center">
+              No recommendations were returned for this movie.
+            </p>
+          )}
         </div>
       )}
     </div>
   );
 }
-

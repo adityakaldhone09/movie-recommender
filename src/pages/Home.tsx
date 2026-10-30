@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MovieCardData } from '../types/movie';
-import { fetchHomeFeed } from '../services/api';
+import { fetchHomeFeed, getApiErrorMessage } from '../services/api';
 import { CinematicHero } from '../components/hero/CinematicHero';
 import { MovieCarousel } from '../components/movie/MovieCarousel';
 import { MovieShelfSkeleton } from '../components/ui/Skeleton';
@@ -24,22 +24,37 @@ export function Home({ onSelectMovie, onNavigateToDiscover }: HomeProps) {
     try {
       setLoading(true);
       setErrorMessage(null);
-      const [trendingData, popularData, topRatedData, upcomingData] =
-        await Promise.all([
-          fetchHomeFeed('trending', 20),
-          fetchHomeFeed('popular', 20),
-          fetchHomeFeed('top_rated', 20),
-          fetchHomeFeed('upcoming', 20),
-        ]);
+      const categories = ['trending', 'popular', 'top_rated', 'upcoming'] as const;
+      const results = await Promise.allSettled(
+        categories.map((category) => fetchHomeFeed(category, 20))
+      );
+      const feeds = results.map((result) =>
+        result.status === 'fulfilled' ? result.value : []
+      );
+      setTrending(feeds[0]);
+      setPopular(feeds[1]);
+      setTopRated(feeds[2]);
+      setUpcoming(feeds[3]);
 
-      setTrending(trendingData);
-      setPopular(popularData);
-      setTopRated(topRatedData);
-      setUpcoming(upcomingData);
-    } catch (err: any) {
-      console.error('Failed to load home feeds:', err);
+      const failedCategories = results.flatMap((result, index) =>
+        result.status === 'rejected' ? [categories[index]] : []
+      );
+      if (failedCategories.length > 0) {
+        const firstError = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected'
+        )?.reason;
+        const detail = getApiErrorMessage(
+          firstError,
+          'Some movie feeds could not be loaded.'
+        );
+        setErrorMessage(
+          `${failedCategories.join(', ')} feed${failedCategories.length > 1 ? 's' : ''}: ${detail}`
+        );
+      }
+    } catch (error: unknown) {
+      console.error('Failed to load home feeds:', error);
       setErrorMessage(
-        err.message || 'Connecting to backend server... If hosted on Render Free plan, it may take 30-45s to wake up.'
+        getApiErrorMessage(error, 'Could not load movie feeds. Please retry.')
       );
     } finally {
       setLoading(false);
@@ -150,4 +165,3 @@ export function Home({ onSelectMovie, onNavigateToDiscover }: HomeProps) {
     </div>
   );
 }
-

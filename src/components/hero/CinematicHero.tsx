@@ -38,11 +38,22 @@ export function CinematicHero({
     };
   }, [featuredList.length, isPaused]);
 
-  if (isLoading || featuredList.length === 0) {
+  if (isLoading) {
     return (
       <div className="relative w-full h-[65vh] sm:h-[75vh] min-h-[500px] max-h-[750px] bg-surface flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 bg-hero-gradient" />
         <div className="w-12 h-12 rounded-full border-4 border-cinema-violet/30 border-t-cinema-violet animate-spin" />
+      </div>
+    );
+  }
+
+  if (featuredList.length === 0) {
+    return (
+      <div className="relative w-full h-[65vh] sm:h-[75vh] min-h-[500px] max-h-[750px] bg-surface flex items-center justify-center overflow-hidden px-6 text-center">
+        <div className="absolute inset-0 bg-hero-gradient" />
+        <p className="relative text-cinema-muted">
+          Featured movies are unavailable right now.
+        </p>
       </div>
     );
   }
@@ -203,4 +214,3 @@ export function CinematicHero({
     </div>
   );
 }
-

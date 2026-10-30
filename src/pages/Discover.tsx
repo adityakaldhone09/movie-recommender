@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MovieCardData, Genre } from '../types/movie';
-import { fetchGenres, fetchDiscoverMovies, searchMoviesTmdb } from '../services/api';
+import {
+  fetchGenres,
+  fetchDiscoverMovies,
+  getApiErrorMessage,
+} from '../services/api';
 import { SearchBar } from '../components/discovery/SearchBar';
 import { MoodSelector } from '../components/discovery/MoodSelector';
 import { GenreFilter } from '../components/discovery/GenreFilter';
@@ -27,12 +31,22 @@ export function Discover({ onSelectMovie }: DiscoverProps) {
   const [movies, setMovies] = useState<MovieCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [genreError, setGenreError] = useState<string | null>(null);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
 
-  // Load genres once
-  useEffect(() => {
-    fetchGenres().then(setGenres).catch(console.error);
+  const loadGenres = useCallback(async () => {
+    try {
+      setGenres(await fetchGenres());
+      setGenreError(null);
+    } catch (error: unknown) {
+      console.error('Failed to load genres:', error);
+      setGenreError(getApiErrorMessage(error, 'Could not load genres.'));
+    }
   }, []);
+
+  useEffect(() => {
+    void loadGenres();
+  }, [loadGenres]);
 
   // Fetch filtered movies
   const loadFilteredMovies = useCallback(async () => {
@@ -52,10 +66,10 @@ export function Discover({ onSelectMovie }: DiscoverProps) {
         1
       );
       setMovies(results);
-    } catch (err: any) {
-      console.error('Failed to discover movies:', err);
+    } catch (error: unknown) {
+      console.error('Failed to discover movies:', error);
       setErrorMessage(
-        err.message || 'Failed to load movies. If the backend is waking up, please retry shortly.'
+        getApiErrorMessage(error, 'Failed to load movies. Please retry.')
       );
     } finally {
       setLoading(false);
@@ -174,6 +188,14 @@ export function Discover({ onSelectMovie }: DiscoverProps) {
             />
 
             {/* 2. Genre Chips */}
+            {genreError && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-amber-200">
+                <span>Genres could not be loaded: {genreError}</span>
+                <Button variant="outline" size="sm" onClick={() => void loadGenres()}>
+                  Retry genres
+                </Button>
+              </div>
+            )}
             <GenreFilter
               genres={genres}
               selectedGenres={selectedGenres}
@@ -236,4 +258,3 @@ export function Discover({ onSelectMovie }: DiscoverProps) {
     </div>
   );
 }
-
